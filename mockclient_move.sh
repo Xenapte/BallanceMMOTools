@@ -25,4 +25,3 @@ do
 	read -p "Client id to teleport to: " client_id
 	for i in $loop_num; do screen -S bmmo$i -p 0 -X stuff "teleport $client_id^M"; done
 done
-

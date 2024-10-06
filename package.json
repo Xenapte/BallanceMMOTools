@@ -1,8 +1,0 @@
-{
-  "devDependencies": {
-    "@types/node": "^22.7.4"
-  },
-  "dependencies": {
-    "console-stamp": "^3.1.2"
-  }
-}
