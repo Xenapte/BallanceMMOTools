@@ -17,3 +17,7 @@ Reverse proxy with a RESTful API for major BMMO servers.
 ### mockclient_move.sh
 
 Spawns mock clients. Can be used for trolling.
+
+### log_sanitizer.sh
+
+Sanitizes IP addresses and UUIDs in BMMO log files.
