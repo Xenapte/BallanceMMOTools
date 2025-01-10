@@ -21,3 +21,7 @@ Spawns mock clients. Can be used for trolling.
 ### log_sanitizer.sh
 
 Sanitizes IP addresses and UUIDs in BMMO log files.
+
+### record_analyzer.py
+
+Analyzes BMMO Flight Records.
