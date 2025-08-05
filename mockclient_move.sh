@@ -1,6 +1,7 @@
 #! /bin/bash
 function ctrlc_exit () {
 	echo -e "\n------------\nStopping..."
+	kill $!
 	for i in $loop_num; do screen -S bmmo$i -p 0 -X stuff "stop^M" && sleep 0.2; done
 	exit 0
 }
