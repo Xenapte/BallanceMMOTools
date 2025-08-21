@@ -27,7 +27,7 @@ print(f"Using mockclient command: {mockclient_command}")
 
 def exit_handler():
     global moving
-    print("Interrupted by user, exiting...")
+    print("\nInterrupted by user, exiting...")
     moving = False
     for i in range(args.count):
         subprocess.run(["screen", "-S", args.screen_name, "-p", str(i), "-X", "stuff", "^Mstop^M"])
@@ -69,6 +69,39 @@ try:
 
     ordered = True
 
+    available_commands = {}
+    def add_command(names: list[str], func):
+        global available_commands
+        for name in names:
+            available_commands[name] = func
+
+    def completer(text, state):
+        options = [cmd for cmd in available_commands if cmd.startswith(text)]
+        return options[state] if state < len(options) else None
+
+    readline.set_completer(completer)
+    readline.set_completer_delims(' \t')
+    readline.parse_and_bind('tab: complete')
+
+    add_command(["help"], lambda: rprint("Available commands:", ", ".join(available_commands.keys()),
+                                         "\nOther unmatched commands will be sent to all mock clients."))
+
+    add_command(["exit", "quit", "stop"], exit_handler)
+    def toggleorder():
+        global ordered
+        ordered = not ordered
+        rprint("Mock clients will now execute commands in order." if ordered else "Mock clients will now execute commands in parallel.")
+    add_command(["toggleorder"], toggleorder)
+    def togglemove():
+        global moving
+        moving = not moving
+        if moving:
+            rprint("Mock clients will now move.")
+            threading.Thread(target=move_indefinitely, daemon=True).start()
+        else:
+            rprint("Mock clients will stop moving.")
+    add_command(["togglemove"], togglemove)
+
     while True:
         try:
             input_str = input(f"{args.screen_name}> ").strip()
@@ -76,21 +109,8 @@ try:
             if not cmd_args:
                 continue
             cmd = cmd_args[0].strip().lower()
-            if cmd in ["exit", "quit", "stop"]:
-                exit_handler()
-            if cmd == "order":
-                ordered = not ordered
-                if ordered:
-                    rprint("Mock clients will now execute commands in order.")
-                else:
-                    rprint("Mock clients will now execute commands in parallel.")
-            elif cmd == "move":
-                moving = not moving
-                if moving:
-                    rprint("Mock clients will now move.")
-                    threading.Thread(target=move_indefinitely, daemon=True).start()
-                else:
-                    rprint("Mock clients will stop moving.")
+            if cmd in available_commands:
+                available_commands[cmd]()
             else:
                 if ordered:
                     for i in range(args.count):
