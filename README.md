@@ -18,6 +18,10 @@ Reverse proxy with a RESTful API for major BMMO servers.
 
 Spawns mock clients. Can be used for trolling.
 
+### mockclient_move.py
+
+More advanced version of `mockclient_move.sh`.
+
 ### log_sanitizer.sh
 
 Sanitizes IP addresses and UUIDs in BMMO log files.

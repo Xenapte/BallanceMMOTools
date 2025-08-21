@@ -37,9 +37,8 @@ def exit_handler():
 
 def move_indefinitely():
     while moving:
-        for i in range(args.count):
-            subprocess.run(["screen", "-S", args.screen_name, "-p", str(i), "-X", "stuff", "translate^M"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-            time.sleep(args.movement_interval)
+        subprocess.run(["screen", "-S", args.screen_name, "-X", "at", "#", "stuff", "translate^M"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        time.sleep(args.movement_interval)
 
 
 name_len = int(math.log10(args.count)) + 1 if args.count > 1 else 1
