@@ -18,43 +18,51 @@ parser.add_argument("-i", "--movement-interval", type=float, default=0.2, help="
 parser.add_argument("-s", "--screen-name", type=str, default="bmmo-mock", help="prefix for the GNUScreen names; default: `bmmo-mock`.")
 parser.add_argument("--no-move", help="if set, mock clients will not move. Default: False.", action="store_true")
 
-args = parser.parse_args()
+sys_args = parser.parse_args()
 
-moving = not args.no_move
-mockclient_command = args.mockclient_command if args.mockclient_command else ["./BallanceMMOMockClient"]
+moving = not sys_args.no_move
+mockclient_command = sys_args.mockclient_command if sys_args.mockclient_command else ["./BallanceMMOMockClient"]
 print(f"Using mockclient command: {mockclient_command}")
 
+print("Note that this script assumes that you have GNU Screen installed and configured properly (e.g. no skipping of the #0 window), and that the mock client command is executable. If you encounter issues, please check your GNU Screen installation and the mock client command.")
+print("-" * 40)
 
-def exit_handler():
+
+def exit_handler(*args):
     global moving
     print("\nInterrupted by user, exiting...")
     moving = False
-    for i in range(args.count):
-        subprocess.run(["screen", "-S", args.screen_name, "-p", str(i), "-X", "stuff", "^Mstop^M"])
+    for i in range(sys_args.count):
+        subprocess.run(["screen", "-S", sys_args.screen_name, "-p", str(i), "-X", "stuff", "^Mstop^M"])
         time.sleep(0.2) # hardcoded delay to allow mock client to stop properly
-    subprocess.run(["screen", "-S", args.screen_name, "-X", "quit"])
+    subprocess.run(["screen", "-S", sys_args.screen_name, "-X", "quit"])
     exit(0)
 
 def move_indefinitely():
     while moving:
-        subprocess.run(["screen", "-S", args.screen_name, "-X", "at", "#", "stuff", "translate^M"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-        time.sleep(args.movement_interval)
+        subprocess.run(["screen", "-S", sys_args.screen_name, "-X", "at", "#", "stuff", "translate^M"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        time.sleep(sys_args.movement_interval)
 
 
-name_len = int(math.log10(args.count)) + 1 if args.count > 1 else 1
+name_len = int(math.log10(sys_args.count)) + 1 if sys_args.count > 1 else 1
 
 try:
-    for i in range(args.count):
-        if i == 0:
-            subprocess.run(["screen", "-dmS", args.screen_name] + mockclient_command + ["-n", f"{args.name}{i+1 :0{name_len}d}"])
-        else:
-            subprocess.run(["screen", "-S", args.screen_name, "-X", "screen"] + mockclient_command + ["-n", f"{args.name}{i+1 :0{name_len}d}"])
-        time.sleep(args.spawn_interval)
+    def spawn_noninitial_mock_client(index):
+        subprocess.run(["screen", "-S", sys_args.screen_name, "-X", "screen", str(index - 1)] + mockclient_command + ["-n", f"{sys_args.name}{index :0{name_len}d}"])
 
-    print(f"Spawned {args.count} mock clients with prefix '{args.name}' and screen name '{args.screen_name}'.")
-    print(f"To interact with the mock clients directly, use the command: `screen -r {args.screen_name}`.")
-    print(f"To dispatch more complex commands to the mock clients, type in the console or use the command: `screen -S {args.screen_name} -X at # stuff 'your_command^M'`.")
-    print(f"Alternatively, if you want to keep the order, use `for i in {{0..{args.count-1}}}; do screen -S {args.screen_name} -p $i -X stuff 'your_command^M'; done`.")
+    for i in range(sys_args.count):
+        if i == 0:
+            subprocess.run(["screen", "-dmS", sys_args.screen_name] + mockclient_command + ["-n", f"{sys_args.name}{i+1 :0{name_len}d}"])
+        else:
+            spawn_noninitial_mock_client(i + 1)
+        time.sleep(sys_args.spawn_interval)
+
+    print(f"Spawned {sys_args.count} mock clients with prefix '{sys_args.name}' and screen name '{sys_args.screen_name}'.")
+    print(f"To interact with the mock clients directly, use the command: `screen -r {sys_args.screen_name}`.")
+    print(f"To dispatch more complex commands to the mock clients, type in the console or use the command: `screen -S {sys_args.screen_name} -X at # stuff \"cmd^M\"`.")
+    print(f"Alternatively, if you want to keep the order, use `for i in {{0..{sys_args.count-1}}}; do screen -S {sys_args.screen_name} -p $i -X stuff \"cmd^M\"; done`.")
+    print("-" * 40)
+    print("Type `help` for available commands. Type `exit` or press Ctrl+D to quit.")
 
     import readline
 
@@ -83,16 +91,16 @@ try:
     readline.set_completer_delims(' \t')
     readline.parse_and_bind('tab: complete')
 
-    add_command(["help"], lambda: rprint("Available commands:", ", ".join(available_commands.keys()),
-                                         "\nOther unmatched commands will be sent to all mock clients."))
+    add_command(["help"], lambda *args: rprint("Available commands:", ", ".join(sorted(available_commands.keys())),
+                                               "\nOther unmatched commands will be sent to all mock clients."))
 
     add_command(["exit", "quit", "stop"], exit_handler)
-    def toggleorder():
+    def toggleorder(*args):
         global ordered
         ordered = not ordered
-        rprint("Mock clients will now execute commands in order." if ordered else "Mock clients will now execute commands in parallel.")
+        rprint("Mock clients will now execute commands " + ("in order." if ordered else "in parallel."))
     add_command(["toggleorder"], toggleorder)
-    def togglemove():
+    def togglemove(*args):
         global moving
         moving = not moving
         if moving:
@@ -101,22 +109,42 @@ try:
         else:
             rprint("Mock clients will stop moving.")
     add_command(["togglemove"], togglemove)
+    def respawn(*args):
+        if len(args) < 2:
+            rprint("Usage: respawn <mock_client_number>")
+            return
+        try:
+            index = int(args[1])
+            if index < 0 or index > sys_args.count:
+                rprint(f"Invalid mock client number: {index}. Must be between 1 and {sys_args.count}.")
+                return
+            rprint(f"Respawning mock client #{index}...")
+            if subprocess.run(["screen", "-S", sys_args.screen_name, "-p", str(index - 1), "-Q", "title"]).returncode == 0: # still running
+                rprint(f"Mock client #{index} is still running. Stopping it first...")
+                subprocess.run(["screen", "-S", sys_args.screen_name, "-p", str(index - 1), "-X", "stuff", "^Mstop^M"])
+                time.sleep(0.5)
+            spawn_noninitial_mock_client(index)
+        except ValueError:
+            rprint("Invalid mock client number. Must be an integer.")
+    add_command(["respawn"], respawn)
 
     while True:
         try:
-            input_str = input(f"{args.screen_name}> ").strip()
+            input_str = input(f"\r{sys_args.screen_name}> ").strip()
             cmd_args = input_str.split(" ")
             if not cmd_args:
                 continue
             cmd = cmd_args[0].strip().lower()
             if cmd in available_commands:
-                available_commands[cmd]()
+                available_commands[cmd](*cmd_args)
             else:
                 if ordered:
-                    for i in range(args.count):
-                        subprocess.run(["screen", "-S", args.screen_name, "-p", str(i), "-X", "stuff", f"{input_str}^M"])
+                    for i in range(sys_args.count):
+                        if subprocess.run(["screen", "-S", sys_args.screen_name, "-p", str(i), "-X", "stuff", f"{input_str}^M"]).returncode != 0:
+                            rprint(f"Error executing command on mock client #{i + 1}. Trying to respawn...")
+                            spawn_noninitial_mock_client(i + 1)
                 else:
-                    subprocess.run(["screen", "-S", args.screen_name, "-X", "at", "#", "stuff", f"{input_str}^M"])
+                    subprocess.run(["screen", "-S", sys_args.screen_name, "-X", "at", "#", "stuff", f"{input_str}^M"])
 
         except EOFError:
             break
