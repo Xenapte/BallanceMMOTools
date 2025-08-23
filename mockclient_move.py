@@ -15,8 +15,9 @@ parser.add_argument("-n", "--name", type=str, default="f", help="prefix of the m
 parser.add_argument("--spawn-interval", type=float, default=0.2, help="time interval between each mock client spawn in seconds; default: 0.2 seconds.")
 parser.add_argument("-i", "--movement-interval", type=float, default=0.2, help="time interval between mock client interactions in seconds; default: 0.2 seconds.")
 # parser.add_argument("-p", "--pattern", type=str, default="bmmo-#-mock", help="prefix for the GNU Screen names; default: `bmmo-#-mock`. use `#` to denote the mock client number. an infix like in the default is recommended as GNU Screen normally does a fuzzy match on the name, and refuses to execute if there are multiple matches.")
-parser.add_argument("-s", "--screen-name", type=str, default="bmmo-mock", help="prefix for the GNUScreen names; default: `bmmo-mock`.")
+parser.add_argument("-s", "--screen-name", type=str, default="bmmo-mock", help="prefix for the GNU Screen names; default: `bmmo-mock`.")
 parser.add_argument("--no-move", help="if set, mock clients will not move. Default: False.", action="store_true")
+parser.add_argument("--no-client-cpp-download", help="by default, the script attempts to find mock client code locally for command hints, and if it can't find one, it downloads the code from online. if set, the script will not attempt to download the latest mock client c++ code.", action="store_true")
 
 sys_args = parser.parse_args()
 
@@ -24,11 +25,48 @@ moving = not sys_args.no_move
 mockclient_command = sys_args.mockclient_command if sys_args.mockclient_command else ["./BallanceMMOMockClient"]
 print(f"Using mockclient command: {mockclient_command}")
 
-print("Note that this script assumes that you have GNU Screen installed and configured properly (e.g. no skipping of the #0 window), and that the mock client command is executable. If you encounter issues, please check your GNU Screen installation and the mock client command.")
+
+client_cpp_path = None
+client_commands = []
+if not sys_args.no_client_cpp_download:
+    from os import path
+    for p in [".", "..", "../BallanceMMO/BallanceMMOServer", "../../BallanceMMO/BallanceMMOServer", "../../../BallanceMMO/BallanceMMOServer"]:
+        if path.exists(path.join(p, "client.cpp")):
+            print(f"Found client.cpp in `{p}`, not downloading.")
+            client_cpp_path = path.join(p, "client.cpp")
+            break
+    else:
+        print("mockclient.cpp not found locally, downloading the latest version from GitHub...")
+        import urllib.request
+        try:
+            urllib.request.urlretrieve("https://raw.githubusercontent.com/Swung0x48/BallanceMMO/main/BallanceMMOServer/client.cpp", "client.cpp")
+            print("Downloaded client.cpp successfully.")
+            client_cpp_path = "client.cpp"
+        except Exception as e:
+            print(f"Failed to download client.cpp: {e}")
+            print("Continuing without it. Command hints will not be available.")
+if client_cpp_path:
+    with open(client_cpp_path, "r") as f:
+        client_cpp = f.read()
+    import re
+    command_matches = re.findall(r'console.register_command\("(.+)", ', client_cpp)
+    if command_matches:
+        client_commands = command_matches
+    command_alias_matches = re.findall(r'console.register_aliases\(".+", {"(.+)"}\);', client_cpp)
+    if command_alias_matches:
+        for alias_group in command_alias_matches:
+            aliases = alias_group.split('", "')
+            client_commands.extend(aliases)
+    client_commands = sorted(set(client_commands))
+    print(f"Found {len(client_commands)} commands in client.cpp.")
+    print("-" * 40)
+
+
+print("Note that this script assumes that you have GNU Screen installed and configured properly (e.g. no skipping of the #0 window), and that the mock client command is executable. If you encounter issues, please check your GNU Screen installation and the mock client command first.")
 print("-" * 40)
 
 
-def exit_handler(*args):
+def exit_handler(*_):
     global moving
     print("\nInterrupted by user, exiting...")
     moving = False
@@ -66,41 +104,51 @@ try:
 
     import readline
 
+    prompt = f"{sys_args.screen_name}> "
+
     def rprint(*args, **kwargs):
         print("\r", end="")
         print(*args, **kwargs)
+        print(prompt + readline.get_line_buffer(), end="", flush=True)
         readline.redisplay()
-        # readline.add_history(" ".join(map(str, args)))
+        # readline.add_history(" ".join(map(str, args))) # auto history is on by default
 
     if moving:
         threading.Thread(target=move_indefinitely, daemon=True).start()
 
+    from typing import Callable
     ordered = True
-
-    available_commands = {}
+    available_commands: dict[str, Callable] = {}
     def add_command(names: list[str], func):
         global available_commands
         for name in names:
             available_commands[name] = func
 
     def completer(text, state):
-        options = [cmd for cmd in available_commands if cmd.startswith(text)]
+        full_command_list = sorted(set(list(available_commands) + client_commands))
+        options = [cmd for cmd in full_command_list if cmd.startswith(text)]
         return options[state] if state < len(options) else None
 
     readline.set_completer(completer)
     readline.set_completer_delims(' \t')
     readline.parse_and_bind('tab: complete')
 
-    add_command(["help"], lambda *args: rprint("Available commands:", ", ".join(sorted(available_commands.keys())),
-                                               "\nOther unmatched commands will be sent to all mock clients."))
+    add_command(["help"], lambda *_: rprint("-" * 40,
+                                            "Available script commands:",
+                                            "- " + ", ".join(sorted(available_commands.keys())),
+                                            "Other unmatched commands will be sent to all mock clients.",
+                                            "Available mock client commands (from client.cpp):",
+                                            "- " + ", ".join(client_commands) if client_commands else "N/A",
+                                            "-" * 40,
+                                            sep="\n"))
 
     add_command(["exit", "quit", "stop"], exit_handler)
-    def toggleorder(*args):
+    def toggleorder(*_):
         global ordered
         ordered = not ordered
         rprint("Mock clients will now execute commands " + ("in order." if ordered else "in parallel."))
     add_command(["toggleorder"], toggleorder)
-    def togglemove(*args):
+    def togglemove(*_):
         global moving
         moving = not moving
         if moving:
@@ -130,7 +178,8 @@ try:
 
     while True:
         try:
-            input_str = input(f"\r{sys_args.screen_name}> ").strip()
+            print("", end="\r")
+            input_str = input(prompt).strip()
             cmd_args = input_str.split(" ")
             if not cmd_args:
                 continue
